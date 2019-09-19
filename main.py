@@ -1,45 +1,45 @@
-'''
+"""
 A model-free Reinforcement learning agent, created in Tensorflow.
 A part of my steps into the world of AI -- Created to go with MIT 6.S191 Lab 3
-'''
+"""
 
+# imports and settings
 import tensorflow as tf
-tf.compat.v1.enable_eager_execution()
 import gym
 import numpy as np
 from memory import Memory
-from pyvirtualdisplay import Display
 import skvideo.io
 import __init__ as util
-import matplotlib.pyplot as plt
-from IPython import display as ipythondisplay
-import time
+tf.compat.v1.enable_eager_execution()
 
-env = gym.make("CartPole-v0")
-env.seed(1)
-n_actions = env.action_space.n
+# Function definitions
+
 
 def create_cartpole_model():
-    model = tf.keras.models.Sequential([tf.keras.layers.Dense(units=32, activation='relu'), tf.keras.layers.Dense(units=n_actions, activation=None)])
+    """Creates the cartpole model from the OpenGym"""
+    model = tf.keras.models.Sequential([tf.keras.layers.Dense(units=32, activation='relu'),
+                                        tf.keras.layers.Dense(units=n_actions, activation=None)])
     return model
 
-cartpole_model = create_cartpole_model()
 
 def choose_action(model, observation):
+    """Chooses action from the given action space, based on a softmax probability distribution"""
     observation = observation.reshape([1, -1])
     logits = model.predict(observation)
     prob_weights = tf.nn.softmax(logits).numpy()
     action = np.random.choice(n_actions, size=1, p=prob_weights.flatten())[0]
     return action
 
-memory = Memory()
 
 def normalize(x):
+    """Normalizes data"""
     x -= np.mean(x)
     x /= np.std(x)
     return x
 
+
 def discount_rewards(rewards, gamma=0.95):
+    """Function to discount rewards further in the future, giving more importance to current rewards"""
     discounted_rewards = np.zeros_like(rewards)
     R = 0
     for t in reversed(range(0, len(rewards))):
@@ -47,14 +47,16 @@ def discount_rewards(rewards, gamma=0.95):
         discounted_rewards[t] = R
     return normalize(discounted_rewards)
 
-learning_rate = 1e-3
-optimizer = tf.train.AdamOptimizer(learning_rate)
+
 def compute_loss(logits, actions, rewards):
+    """Computes the loss"""
     neg_logprob = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=actions)
     loss = tf.reduce_mean(neg_logprob * rewards)
     return loss
 
+
 def train_step(model, optimizer, observations, actions, discounted_rewards):
+    """The main training assistance function"""
     with tf.GradientTape() as tape:
         observations = tf.convert_to_tensor(observations, dtype=tf.float32)
         logits = model(observations)
@@ -63,24 +65,9 @@ def train_step(model, optimizer, observations, actions, discounted_rewards):
     grads = tape.gradient(loss, model.variables)
     optimizer.apply_gradients(zip(grads, model.variables), global_step=tf.train.get_or_create_global_step())
 
-smoothed_reward = util.LossHistory(smoothing_factor=0.9)
-plotter = util.PeriodicPlotter(sec=5, xlabel='Iterations', ylabel='Rewards')
-for i_episode in range(10000):
-    plotter.plot(smoothed_reward.get())
-    observation = env.reset()
-    while True:
-        action =  choose_action(cartpole_model, observation)
-        next_obs, reward, done, info = env.step(action)
-        memory.add_to_memory(observation, action, reward)
-        if done:
-            total_reward = sum(memory.rewards)
-            smoothed_reward.append(total_reward)
-            train_step(cartpole_model, optimizer, observations=np.vstack(memory.observations), actions=np.array(memory.actions), discounted_rewards=discount_rewards(memory.rewards))
-            memory.clear()
-            break
-        observation = next_obs
 
 def save_video_of_model(model, env_name, filename='agent.mp4'):
+    """Saves video created by the RL model using the FFMPeg library's functions"""
     from pyvirtualdisplay import Display
     display = Display(visible=0, size=(40, 30))
     display.start()
@@ -99,5 +86,31 @@ def save_video_of_model(model, env_name, filename='agent.mp4'):
         obs, reward, done, info = env.step(action)
     out.close()
     print("successfully saved into {}".format(filename))
+
+
+env = gym.make("CartPole-v0")
+env.seed(1)
+n_actions = env.action_space.n
+cartpole_model = create_cartpole_model()
+memory = Memory()
+learning_rate = 1e-3
+optimizer = tf.train.AdamOptimizer(learning_rate)
+smoothed_reward = util.LossHistory(smoothing_factor=0.9)
+plotter = util.PeriodicPlotter(sec=5, xlabel='Iterations', ylabel='Rewards')
+
+for i_episode in range(10000):
+    plotter.plot(smoothed_reward.get())
+    observation = env.reset()
+    while True:
+        action = choose_action(cartpole_model, observation)
+        next_obs, reward, done, info = env.step(action)
+        memory.add_to_memory(observation, action, reward)
+        if done:
+            total_reward = sum(memory.rewards)
+            smoothed_reward.append(total_reward)
+            train_step(cartpole_model, optimizer, observations=np.vstack(memory.observations), actions=np.array(memory.actions), discounted_rewards=discount_rewards(memory.rewards))
+            memory.clear()
+            break
+        observation = next_obs
 
 save_video_of_model(cartpole_model, "CartPole-v0")
